@@ -5,6 +5,7 @@ import logging
 from dotenv import load_dotenv
 from gpterm.entry import get_input
 import openai
+from recordclass import dataobject
 
 # Setup logging
 logging.basicConfig(level=logging.WARN)
@@ -14,18 +15,46 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 # Constants
 # MODELS = ["gpt-3.5", "gpt-3.5-turbo", "gpt-4", "gpt-4-1106-preview"]
-MODELS = {
+OPENAI_MODELS = {
+    "3": "gpt-3.5",
+    "4": "gpt-4-1106-preview",
     "gpt-3.5": "gpt-3.5",
     "gpt-3.5-turbo": "gpt-3.5-turbo",
     "gpt-4": "gpt-4",
     "gpt-4-turbo": "gpt-4-1106-preview",
 }
 SYSTEM = "You are helpful assistant. Respond with short, single sentence answers unless asked to elaborate."
+# SYSTEM = "You are a thesaurus. Respond 'synonym1, synonym2, ... | antonym1, antonym2, ...'."
 START_MESSAGE = {
     "role": "system",
     "content": SYSTEM,
 }
 
+class Context(dataobject):
+    openai_client: openai.OpenAI
+    messages: List[dict]
+
+def complete_openai(context):
+    """Complete the current message using OpenAI."""
+    try:
+        response = ""
+        stream = context.openai_client.chat.completions.create(
+            messages=context.messages,
+            model="gpt-3.5-turbo",
+            stream=True,
+        )
+        logger.info(stream)
+        for part in stream:
+            if part.choices[0].finish_reason == "stop":
+                break
+            content = part.choices[0].delta.content
+            response += content
+            print(content, end="", flush=True)
+    except openai.OpenAIError as e:
+        logger.error(f"An API error occurred: {e}")
+    return response
+
+COMPLETION = {v: complete_openai for v in OPENAI_MODELS.values()}
 # Utilities
 
 def chat() -> None:
@@ -35,7 +64,7 @@ def chat() -> None:
     client = openai.OpenAI()
 
     messages = [START_MESSAGE]
-    enabled = True
+    enabled = False
     model = "gpt-3.5-turbo"
 
     try:
@@ -55,8 +84,8 @@ def chat() -> None:
                 messages = [START_MESSAGE]
                 print("Chat restarted.")
                 continue
-            if message in MODELS:
-                model = MODELS[message]
+            if message in OPENAI_MODELS:
+                model = OPENAI_MODELS[message]
                 print(f"Model set to {model}.")
                 continue
             if message.startswith("system "):
@@ -74,25 +103,13 @@ def chat() -> None:
             })
 
             if enabled:
-                try:
-                    response = ""
-                    stream = client.chat.completions.create(
-                        messages=messages,
-                        model=model,
-                        stream=True,
-                    )
-                    logger.info(stream)
-                    for part in stream:
-                        if part.choices[0].finish_reason == "stop":
-                            break
-                        content = part.choices[0].delta.content
-                        response += content
-                        print(content, end="")
-                except openai.OpenAIError as e:
-                    logger.error(f"An API error occurred: {e}")
+                response = COMPLETION[model](Context(
+                    openai_client=client,
+                    messages=messages,
+                ))
             else:
-                response = "OpenAI is disabled. Type 'enable' to enable."
-                print(response, end="")
+                print("OpenAI is disabled. Type 'enable' to enable.", end="")
+                continue
             print("\n")
             messages.append({
                 "role": "assistant",
