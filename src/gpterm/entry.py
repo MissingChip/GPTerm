@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 from readchar import readkey, key
 from recordclass import dataobject
 from dataclasses import dataclass
-from time import sleep
+from time import time
 import math
 
 load_dotenv()
@@ -41,6 +41,9 @@ class Context:
     history: History
     _cursor: Cursor
     _lines: List[str]
+    last_key: str = ""
+    last_key_count: int = 0
+    last_key_time: float = 0
 
     def __init__(self, history: History, lines: List[str]):
         self.history = history
@@ -204,22 +207,28 @@ def get_input(prompt: str = "> ") -> str:
 
 def get_raw_input(prompt: str = "> ", history = history) -> str:
     print(prompt + "\n", end="", flush=True)
-    context = Context(history, [])
+    context = Context(history, [""])
     while True:
-        line = ""
-        while not line.endswith("\n"):
+        while not context.lines[-1].endswith("\n"):
             char = readkey()
             if char == key.CTRL_D:
                 print("\nGoodbye.")
                 exit(0)
-            if not handle_key(char, context):
-                if len(char) > 1:
-                    pchar(repr(char))
-                    continue
-                write_char(char, context)
-        if not line.endswith(" "):
-            data = "\n".join([line.strip() for line in context.lines])
-            return data
+            times = 1
+            if char == context.last_key:
+                if time() - context.last_key_time < 0.25:
+                    times = context.last_key_count + 1
+            for _ in range(times):
+                if not handle_key(char, context):
+                    if len(char) > 1:
+                        pchar(repr(char))
+                        continue
+                    write_char(char, context)
+            context.last_key = char
+            context.last_key_count = times
+            context.last_key_time = time()
+        data = "\n".join([line.strip() for line in context.lines])
+        return data
 
 def add_history_entry(entry: HistoryEntry, history: History = history) -> None:
     history.history.append(entry)
