@@ -153,20 +153,13 @@ def write_char(char: str, context: Context) -> None:
     context.column += 1
 
 def remove_char(context: Context) -> None:
-    width = os.get_terminal_size().columns
-    line = context.lines[context.row]
-    line_start = line[:context.column]
-    line_end = line[context.column:]
-    if context.column == 0 and context.row > 0:
-        context.row -= 1
-        context.column = len(context.lines[context.row])
-        context.lines[context.row] += line
-        context.lines.pop(context.row + 1)
-        pchar("\r" + context.lines[context.row] + key.LEFT * len(line_end))
-    else:
-        context.column -= 1
-        context.lines[context.row] = line_start[:-1] + line_end
-        pchar("\r" + line_start[:-1] + " " + line_end + key.LEFT * len(line_end))
+    lines = [line for line in context.lines]
+    line = lines[context.row]
+    line = line[:context.column - 1] + line[context.column:]
+    lines[context.row] = line
+    
+    context.lines = lines
+    context.column -= 1
 
 def handle_key(char: str, context: Context) -> None:
     history = context.history
@@ -185,6 +178,9 @@ def handle_key(char: str, context: Context) -> None:
         else:
             history.index = min(len(history.history) - 1, history.index + 1)
             context.lines = [""]
+        return True
+    if char == key.BACKSPACE:
+        remove_char(context)
         return True
     if char == key.UP:
         context.row -= 1
