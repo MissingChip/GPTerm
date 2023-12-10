@@ -8,7 +8,7 @@ import openai
 from recordclass import dataobject
 
 # Setup logging
-logging.basicConfig(level=logging.WARN)
+logging.basicConfig(level=logging.DEBUG, filename="chat.log")
 logger = logging.getLogger(__name__)
 
 # Load environment variables
