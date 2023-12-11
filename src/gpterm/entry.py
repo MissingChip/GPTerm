@@ -1,5 +1,6 @@
 
 import os
+import sys
 import shutil
 from typing import List
 
@@ -14,12 +15,24 @@ import math
 import logging
 logger = logging.getLogger(__name__)
 
+SHIFT_UP = "\x1b[1;2A"
+SHIFT_DOWN = "\x1b[1;2B"
 
 load_dotenv()
 
-def praw(char: str, flush=True) -> None:
+def praw(string: str, flush=True) -> None:
     """Print a character without a newline."""
-    print(char, end="", flush=flush)
+    sys.stdout.write(string)
+    if flush:
+        sys.stdout.flush()
+
+def hide_cursor() -> None:
+    """Hide the cursor."""
+    praw("\033[?25l")
+
+def show_cursor() -> None:
+    """Show the cursor."""
+    praw("\033[?25h")
 
 class HistoryEntry(dataobject):
     user: str
@@ -47,161 +60,184 @@ class CursorMotion:
 
 class Context:
     history: History
-    _cursor: Cursor
-    _true_cursor: Cursor
-    _lines: List[str]
+    _target_cursor: Cursor
+    _term_cursor: Cursor
+    _term_lines: List[str]
     last_key: str = ""
     last_key_count: int = 0
 
     def __init__(self, history: History, lines: List[str]):
         self.history = history
-        self._cursor = Cursor(0, 0)
-        self._true_cursor = Cursor(0, 0)
-        self._lines = lines.copy()
+        self._target_cursor = Cursor(0, 0)
+        self._term_cursor = Cursor(0, 0)
+        self._term_lines = []
+        self.set(lines)
 
     def width(self):
-        return os.get_terminal_size().columns
+        return terminal_width()
 
     @property
     def column(self):
-        return self._cursor.column
-    
-    # @column.setter
-    # def column(self, value):
-    #     prev = self._cursor.column
-    #     self._cursor.column = value
-    #     if value > prev:
-    #         print(key.RIGHT * (value - prev), end="", flush=True)
-    #     else:
-    #         print(key.LEFT * (prev - value), end="", flush=True)
-        # print()
-        # TODO: Handle lines
-        # print("\r" + key.DOWN * ((value // width) - (prev // width)) + key.RIGHT * (value % width), end="")
+        return self._target_cursor.column
     
     @property
     def row(self):
-        return self._cursor.row
+        return self._target_cursor.row
     
-    # @row.setter
-    # def row(self, value):
-    #     prev = self.row
-    #     value = min(max(value, 0), len(self.lines))
-    #     self._cursor.row = value
-    #     delta = value - prev
-    #     if delta > 0:
-    #         print(key.DOWN * (value - prev), end="", flush=True)
-    #         if value == len(self.lines):
-    #             print("\r", end="")
-    #             self._true_cursor.column = 0
-    #             self._lines.append("")
-    #     elif delta < 0:
-    #         print(key.UP * (prev - value), end="", flush=True)
-    #     self._true_cursor.row += delta
-
     @property
-    def lines(self):
-        return self._lines
+    def value(self):
+        return "".join(self._value)
     
-    @lines.setter
-    def lines(self, value: List[str]):
-        value = value.copy()
-        self.clear()
-        self.move_to_target(Cursor(0, 0))
-        self._lines = value
-        self.print_lines(value)
+    def set(self, value: str | List[str]):
+        self._value = terminal_lines(value, self.width())
+        self.draw()
+        self.jump_to_end()
+        logger.debug(f"Set value, cursor at {self._target_cursor}: {self._value}")
     
-    def current_line(self):
-        return self.lines[self.row]
+    def term_line(self, lineno: int):
+        return self._term_lines[lineno].rstrip("\n")
     
     def move(self, motion: CursorMotion, flush=True):
-        cursor = self._cursor.copy()
-        cursor.row = min(max(self._cursor.row + motion.row, 0), len(self.lines) - 1)
-        if cursor.column > len(self.lines[cursor.row]):
-            cursor.column = len(self.lines[cursor.row])
-        cursor.column += motion.column
-        while cursor.column < 0:
-            if cursor.row == 0:
-                cursor.column = 0
+        row = self._target_cursor.row
+        col = self._target_cursor.column
+        row = row + motion.row
+        if row < 0:
+            logger.debug(f"Moving cursor {motion} from {self._target_cursor} to {row}, {col}")
+            self._value = (["\n"] * -row) + self._value
+            self.draw()
+            self.set_target(Cursor())
+            return
+        lines = self._term_lines
+        if row >= len(lines):
+            self.set(self._value + ([""] * (row - len(lines) + 1)))
+            return
+        logger.debug(f"Moving cursor {motion} from {self._target_cursor} to {row}, {col}")
+        sz = lambda row: len(lines[row].rstrip("\n"))
+        if col > sz(row):
+            col = sz(row)
+        col += motion.column
+        while col < 0:
+            if row == 0:
+                col = 0
                 break
-            cursor.row -= 1
-            cursor.column += len(self.lines[cursor.row]) + 1
-        while cursor.column > len(self.lines[cursor.row]):
-            if cursor.row == len(self.lines) - 1:
-                cursor.column = len(self.lines[cursor.row])
+            row -= 1
+            col += sz(row) + 1
+        while col > sz(row):
+            if row == len(lines) - 1:
+                col = sz(row)
                 break
-            cursor.column -= len(self.lines[cursor.row])
-            cursor.row += 1
-        self._cursor = cursor
+            col -= sz(row)
+            row += 1
+        self._target_cursor = Cursor(row, col)
         self.move_to_target(flush=flush)
 
-    def set_target(self, target: Cursor):
-        self._cursor = target
+    def set_target(self, target: Cursor, move=True):
+        self._target_cursor = target
+        if move:
+            self.move_to_target()
+    
+    def jump_to_end(self):
+        self.set_target(Cursor(len(self._term_lines)-1, len(self._term_lines[-1])))
+    
+    def _cursor_visualization(self, cursor: Cursor = None):
+        if cursor is None:
+            cursor = self._target_cursor
+        row = cursor.row
+        col = cursor.column
+        return repr(f"{self._value[row][:col]}|{self._value[row][col:]}")
     
     def move_to_target(self, target: Cursor = None, flush=True):
         if target is None:
-            target = self._cursor
+            target = self._target_cursor
+        logger.debug(f"Target: cursor {target} ({self._term_cursor})")
         width = self.width()
-        target = Cursor(line_count(self.lines[:target.row]) + target.column // width, target.column % width)
-        row_delta = target.row - self._true_cursor.row
+        target = Cursor(target.row + target.column // width, target.column % width)
+        row_delta = target.row - self._term_cursor.row
+        self._term_cursor = target
+        val = ""
         if row_delta > 0:
-            praw(key.DOWN * row_delta, flush=flush)
+            val += "\n" * row_delta
         elif row_delta < 0:
-            praw(key.UP * -row_delta, flush=flush)
-        col_delta = target.column - self._true_cursor.column
-        if col_delta > 0:
-            praw(key.RIGHT * col_delta, flush=flush)
-        elif col_delta < 0:
-            praw(key.LEFT * -col_delta, flush=flush)
-        self._true_cursor = target
-
-    def _print_no_newlines(self, string: str, flush=False):
-        width = self.width()
-        praw(string, flush=flush)
-        col = self._true_cursor.column + len(string)
-        self._true_cursor.row += col // width
-        self._true_cursor.column = col % width
+            val += key.UP * -row_delta
+        val += "\r" + key.RIGHT * target.column
+        praw(val, flush=flush)
     
-    def _print_newline(self):
-        praw("\n")
-        self._cursor.row += 1
-        self._cursor.column = 0
-        self._true_cursor.row += 1
-        self._true_cursor.column = 0
+    def backspace(self):
+        cursor = self._target_cursor
+        if cursor.column > 0:
+            self.replace("", Cursor(cursor.row, cursor.column-1), cursor)
+        elif cursor.row > 0:
+            self.replace("", Cursor(cursor.row-1, -1), cursor)
 
-    def print_lines(self, lines: List[str]):
-        for line in lines[:-1]:
-            self._print_no_newlines(line)
-            self._print_newline()
-        self._print_no_newlines(lines[-1], flush=True)
+    def replace(self, string: str, start: Cursor, end: Cursor):
+        line_start = self._value[start.row][:start.column] + string
+        if end.row >= len(self._value):
+            print(f"end.row {end.row} >= len(self._value) {len(self._value)}")
+        line_end = self._value[end.row][end.column:]
+        line = line_start + line_end
 
-    def print(self, string: str):
-        lines = string.split("\n")
-        self.print_lines(lines)
+        if start.row == end.row:
+            self._value[start.row] = line
+        else:
+            self._value = self._value[:start.row] + [line] + self._value[end.row+1:]
 
-    def replace(self, string: str, start: int, end: int):
-        assert "\n" not in string, "String cannot contain newlines."
-        old_line = self.current_line()
-        line_start = old_line[:start]
-        line_end = old_line[end:]
-        new_line = line_start + string + line_end
-        spaces = max(len(old_line) - len(new_line), 0)
-        self.move_to_target(Cursor(self.row, start))
-        self.print(string + line_end + " " * spaces)
-        self._lines[self.row] = new_line
-        self.set_target(Cursor(self.row, start + len(string)))
+        hide_cursor()
+        self.draw()
+        self.set_target(Cursor(start.row, len(line_start)))
         self.move_to_target()
-        praw("", flush=True)
+        show_cursor()
+        self._value = self._term_lines.copy()
 
     def write(self, string: str):
-        self.replace(string, self.column, self.column)
+        self.replace(string, self._target_cursor, self._target_cursor)
+
+    def _mismatch_index(self, term_lines: List[str]):
+        for i, (line, term_line) in enumerate(zip(self._term_lines, term_lines)):
+            if line != term_line:
+                return i
+        return min(len(self._term_lines), len(term_lines))
     
-    def clear(self):
-        width = self.width()
-        self.move_to_target(Cursor(0, 0))
-        count = line_count(self.lines)
-        empty = " " * width
-        print("\n".join([empty] * count), end="\r")
-        self._true_cursor = Cursor(count, 0)
+    def draw(self, lines: str | List[str] = None):
+        if lines is None:
+            lines = self.value
+        term = terminal_lines(lines, self.width())
+        mismatch = self._mismatch_index(term)
+        limit = max(len(term), len(self._term_lines))
+        for lineno in range(mismatch, limit):
+            line = term[lineno] if lineno < len(term) else ""
+            line = line.rstrip()
+            original = self._term_lines[lineno] if lineno < len(self._term_lines) else ""
+            original = original.rstrip()
+            if line != original:
+                self.move_to_target(Cursor(lineno))
+                spaces = max(len(original) - len(line), 0) * " "
+                praw("\r" + line + spaces + "\r")
+        self._term_lines = term
+
+    def next(self):
+        """Get the next block of input from the user"""
+        while True:
+            char = readkey()
+            if char == key.CTRL_D:
+                    print("\nGoodbye.")
+                    exit(0)
+            if char == key.ENTER:
+                self.jump_to_end()
+                praw("\n")
+                return self.value
+            times = 1
+            if char == self.last_key:
+                if time() - self.last_key_time < 0.25:
+                    times = self.last_key_count + 1
+            for _ in range(min(max((times-3)*2, 1), 10)):
+                if not handle_key(char, self):
+                    if len(char) > 1:
+                        praw(repr(char))
+                        continue
+                    self.write(char)
+            self.last_key = char
+            self.last_key_count = times
+            self.last_key_time = time()
 
 history_file = os.getenv("GPTERM_HISTORY_FILE", "./gpterm_history")
 try:
@@ -225,6 +261,15 @@ except FileNotFoundError:
 #             print(line + " " * (width - len(line)))
 #         lines = [line for line in fetched_lines]
 
+def chunk(lines: List[str], width: int) -> List[str]:
+    """Chunk the lines into a list of lines that fit within the width."""
+    new_lines = []
+    for line in lines:
+        while len(line):
+            new_lines.append(line[:width])
+            line = line[width:]
+    return new_lines
+
 def terminal_width() -> int:
     return shutil.get_terminal_size().columns
 
@@ -233,48 +278,44 @@ def line_count(lines: List[str]) -> int:
     width = terminal_width()
     return sum([math.ceil(len(line)/width) for line in lines])
 
-def terminal_lines(lines: List[str]) -> int:
+def terminal_lines(lines: str | List[str], width=terminal_width(), end="\n") -> int:
     """Return the lines as they would be printed to the terminal."""
-    width = terminal_width()
+    if isinstance(lines, str):
+        lines = lines.split("\n")
     new_lines = []
-    for line in lines:
-        while len(line):
+    for lineno, line in enumerate(lines):
+        line = line.rstrip("\n")
+        if lineno < len(lines) - 1:
+            line += end
+        while len(line) > width:
             new_lines.append(line[:width])
             line = line[width:]
-    return new_lines
+        new_lines.append(line)
+    return new_lines or [""]
 
 def write_char(char: str, context: Context) -> None:
     context.write(char)
-
-def remove_char(context: Context) -> None:
-    lines = [line for line in context.lines]
-    line = lines[context.row]
-    line = line[:context.column - 1] + line[context.column:]
-    lines[context.row] = line
-    
-    context.lines = lines
-    context.column -= 1
 
 def handle_key(char: str, context: Context) -> None:
     history = context.history
     if char == key.PAGE_UP:
         if history.index > 0:
             history.index -= 1
-            context.lines = history[history.index].user.split("\n") + [""]
+            context.set(history[history.index].user)
         else:
             history.index = max(0, history.index - 1)
-            context.lines = [""]
+            context.set("")
         return True
     if char == key.PAGE_DOWN:
         if history.index < len(history.history) - 1:
             history.index += 1
-            context.lines = history[history.index].user.split("\n") + [""]
+            context.set(history[history.index].user)
         else:
             history.index = min(len(history.history) - 1, history.index + 1)
-            context.lines = [""]
+            context.set("")
         return True
     if char == key.BACKSPACE:
-        remove_char(context)
+        context.backspace()
         return True
     if char == key.UP:
         context.move(CursorMotion(-1))
@@ -296,28 +337,8 @@ def get_input(prompt: str = "> ") -> str:
 
 def get_raw_input(prompt: str = "> ", history = history) -> str:
     print(prompt + "\n", end="", flush=True)
-    context = Context(history, [""])
-    while True:
-        while not context.lines[-1].endswith("\n"):
-            char = readkey()
-            if char == key.CTRL_D:
-                print("\nGoodbye.")
-                exit(0)
-            times = 1
-            if char == context.last_key:
-                if time() - context.last_key_time < 0.25:
-                    times = context.last_key_count + 1
-            for _ in range(times):
-                if not handle_key(char, context):
-                    if len(char) > 1:
-                        praw(repr(char))
-                        continue
-                    context.write(char)
-            context.last_key = char
-            context.last_key_count = times
-            context.last_key_time = time()
-        data = "\n".join([line.strip() for line in context.lines])
-        return data
+    context = Context(history, "")
+    return context.next()
 
 def add_history_entry(entry: HistoryEntry, history: History = history) -> None:
     history.history.append(entry)
