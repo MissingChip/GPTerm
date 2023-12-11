@@ -45,6 +45,16 @@ class History:
     def __getitem__(self, index):
         return self.history[index]
 
+history_file = os.getenv("GPTERM_HISTORY_FILE", "./gpterm_history")
+try:
+    with open(history_file, "r") as file:
+        history_lines = file.read().split("\n\n")
+        history = History([HistoryEntry(line) for line in history_lines], len(history_lines))
+except FileNotFoundError:
+    history = []
+    with open(history_file, "w") as file:
+        file.write("")
+
 @dataclass
 class Cursor:
     row: int = 0
@@ -126,7 +136,7 @@ class Context:
             if row == len(lines) - 1:
                 col = sz(row)
                 break
-            col -= sz(row)
+            col -= sz(row) + 1
             row += 1
         self._target_cursor = Cursor(row, col)
         self.move_to_target(flush=flush)
@@ -170,23 +180,23 @@ class Context:
             self.replace("", Cursor(cursor.row-1, -1), cursor)
 
     def replace(self, string: str, start: Cursor, end: Cursor):
-        line_start = self._value[start.row][:start.column] + string
-        if end.row >= len(self._value):
-            print(f"end.row {end.row} >= len(self._value) {len(self._value)}")
+        lines = string.split("\n")
+        line_start = self._value[start.row][:start.column]
         line_end = self._value[end.row][end.column:]
-        line = line_start + line_end
 
-        if start.row == end.row:
-            self._value[start.row] = line
-        else:
-            self._value = self._value[:start.row] + [line] + self._value[end.row+1:]
+        # TODO: Have terminal_lines() handle this?
+        lines[0] = line_start + lines[0]
+        lines[-1] += line_end
+        lines = [line + "\n" for line in lines[:-1]] + [lines[-1]]
+        logger.debug(f"Replacing {start} to {end} with {lines}")
+
+        self._value = self._value[:start.row] + lines + self._value[end.row+1:]
 
         hide_cursor()
-        self.draw()
-        self.set_target(Cursor(start.row, len(line_start)))
+        self._value = self.draw().copy()
+        self.set_target(Cursor(start.row + len(lines) - 1, len(lines[-1])))
         self.move_to_target()
         show_cursor()
-        self._value = self._term_lines.copy()
 
     def write(self, string: str):
         self.replace(string, self._target_cursor, self._target_cursor)
@@ -206,13 +216,15 @@ class Context:
         for lineno in range(mismatch, limit):
             line = term[lineno] if lineno < len(term) else ""
             line = line.rstrip()
-            original = self._term_lines[lineno] if lineno < len(self._term_lines) else ""
-            original = original.rstrip()
+            original = self._term_lines[lineno] if lineno < len(self._term_lines) else None
+            original = original and original.rstrip()
             if line != original:
                 self.move_to_target(Cursor(lineno))
-                spaces = max(len(original) - len(line), 0) * " "
+                spaces = max(len(original or "") - len(line), 0) * " "
                 praw("\r" + line + spaces + "\r")
+                logger.debug(f"Drawing {repr(line)}")
         self._term_lines = term
+        return self._term_lines
 
     def next(self):
         """Get the next block of input from the user"""
@@ -221,54 +233,26 @@ class Context:
             if char == key.CTRL_D:
                     print("\nGoodbye.")
                     exit(0)
-            if char == key.ENTER:
-                self.jump_to_end()
-                praw("\n")
-                return self.value
             times = 1
-            if char == self.last_key:
-                if time() - self.last_key_time < 0.25:
-                    times = self.last_key_count + 1
-            for _ in range(min(max((times-3)*2, 1), 10)):
+            if char == self.last_key and time() - self.last_key_time < 0.25:
+                if char == key.ENTER:
+                    self.jump_to_end()
+                    praw("\n")
+                    return self.value
+                times = self.last_key_count + 1
+            for _ in range(repeat_times(times)):
                 if not handle_key(char, self):
                     if len(char) > 1:
-                        praw(repr(char))
+                        logger.debug(f"Skipping long character: {repr(char)} {char}")
                         continue
+                    logger.debug(f"Writing key: {repr(char)}")
                     self.write(char)
             self.last_key = char
             self.last_key_count = times
             self.last_key_time = time()
 
-history_file = os.getenv("GPTERM_HISTORY_FILE", "./gpterm_history")
-try:
-    with open(history_file, "r") as file:
-        history_lines = file.read().split("\n\n")
-        history = History([HistoryEntry(line) for line in history_lines], len(history_lines))
-except FileNotFoundError:
-    history = []
-    with open(history_file, "w") as file:
-        file.write("")
-
-# def handle_up() -> None:
-#     """Handle the up arrow key."""
-#     if history_index > 0:
-#         history_index -= 1
-#         fetched_lines = [x.strip() for x in history[history_index].split("\n") if x.strip()]
-#         width = os.get_terminal_size().columns
-#         print("\r", end="")
-#         print((len(lines)) * key.UP, end="")
-#         for line in fetched_lines:
-#             print(line + " " * (width - len(line)))
-#         lines = [line for line in fetched_lines]
-
-def chunk(lines: List[str], width: int) -> List[str]:
-    """Chunk the lines into a list of lines that fit within the width."""
-    new_lines = []
-    for line in lines:
-        while len(line):
-            new_lines.append(line[:width])
-            line = line[width:]
-    return new_lines
+def repeat_times(times_repeated: int):
+    return 1 if times_repeated <= 2 else min(times_repeated + 2, 12)
 
 def terminal_width() -> int:
     return shutil.get_terminal_size().columns
@@ -298,6 +282,7 @@ def write_char(char: str, context: Context) -> None:
 
 def handle_key(char: str, context: Context) -> None:
     history = context.history
+    logger.debug(f"Handling key: {repr(char)}")
     if char == key.PAGE_UP:
         if history.index > 0:
             history.index -= 1

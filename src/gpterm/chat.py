@@ -102,13 +102,16 @@ def chat() -> None:
                 "content": message,
             })
 
+            print("\nAssistant:")
             if enabled:
                 response = COMPLETION[model](Context(
                     openai_client=client,
                     messages=messages,
                 ))
             else:
-                print("OpenAI is disabled. Type 'enable' to enable.", end="")
+                print("OpenAI is disabled. Type 'enable' to enable.")
+                print("You wrote:")
+                print(message, end="\n\n")
                 continue
             print("\n")
             messages.append({
