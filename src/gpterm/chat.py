@@ -23,7 +23,7 @@ OPENAI_MODELS = {
     "gpt-4": "gpt-4",
     "gpt-4-turbo": "gpt-4-1106-preview",
 }
-SYSTEM = "You are helpful assistant. Respond with short, single sentence answers unless asked to elaborate."
+SYSTEM = "You are helpful assistant. Respond with short, single sentence answers unless asked to elaborate. Take it step by step."
 # SYSTEM = "You are a thesaurus. Respond 'synonym1, synonym2, ... | antonym1, antonym2, ...'."
 START_MESSAGE = {
     "role": "system",

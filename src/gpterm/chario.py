@@ -7,10 +7,13 @@ ESCAPE = "\x1b"
 SHIFT_UP = "\x1b[1;2A"
 SHIFT_DOWN = "\x1b[1;2B"
 SHIFT_TAB = "\x1b[Z"
+ALT_ENTER = "\x1b\n"
 
 key.SHIFT_UP = SHIFT_UP
 key.SHIFT_DOWN = SHIFT_DOWN
 key.SHIFT_TAB = SHIFT_TAB
+key.ALT_ENTER = ALT_ENTER
+
 
 def init_chario():
     fd = sys.stdin.fileno()

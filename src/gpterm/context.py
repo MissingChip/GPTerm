@@ -253,8 +253,6 @@ class Context:
                 return self._return()
             if char == "\r":
                 continue
-            if handle_key(char, self):
-                continue
             times = 1
             if char == self.last_key and time() - self.last_key_time < 0.25:
                 if char == key.ENTER:
@@ -263,12 +261,11 @@ class Context:
                 times = repeat_times(self.last_key_count)
             else:
                 self.last_key_count = 0
-            for _ in range(repeat_times(times)):
+            if not handle_key(char, self, times):
                 if len(char) > 1:
                     logger.debug(f"Skipping long character: {repr(char)} {char}")
                     continue
-                # logger.debug(f"Writing key: {repr(char)}")
-                self.write(char)
+                self.write(char * times)
             self.last_key = char
             self.last_key_time = time()
     def save(self):
@@ -306,7 +303,7 @@ def terminal_lines(lines: str | List[str], width=terminal_width()) -> int:
         new_lines.append(line + end)
     return new_lines or [""]
 
-def handle_key(char: str, context: Context) -> None:
+def handle_key(char: str, context: Context, count: int) -> None:
     history = context.history
     logger.debug(f"Handling key: {repr(char)}")
     if char in (key.PAGE_UP, key.SHIFT_UP):
@@ -324,19 +321,20 @@ def handle_key(char: str, context: Context) -> None:
         context.backtab()
         return True
     if char == key.BACKSPACE:
-        context.backspace()
+        for _ in range(count):
+            context.backspace()
         return True
     if char == key.UP:
-        context.move(CursorMotion(-1))
+        context.move(CursorMotion(-min(count, 4)))
         return True
-    if char == key.DOWN:
-        context.move(CursorMotion(1))
+    if char in (key.DOWN, key.ALT_ENTER):
+        context.move(CursorMotion(min(count, 4)))
         return True
     if char == key.LEFT:
-        context.move(CursorMotion(0, -1))
+        context.move(CursorMotion(0, -count))
         return True
     if char == key.RIGHT:
-        context.move(CursorMotion(0, 1))
+        context.move(CursorMotion(0, count))
         return True
 
 def replace_files_with_contents(message: str, directory: str = ".") -> str:
