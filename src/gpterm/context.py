@@ -5,12 +5,9 @@ import sys
 import shutil
 from typing import List
 
-import atexit
 from gpterm.chario import readkey, key, init_chario
-from recordclass import dataobject
 from time import time, sleep
 import math
-import json
 
 import logging
 
@@ -53,16 +50,22 @@ class Context:
     _term_lines: List[str]
     last_key: str = ""
     last_key_count: int = 0
+    line_start = ""
 
-    def __init__(self, history: History = None, lines: List[str] = []):
+    def __init__(self, history: History = None, lines: List[str] = [], line_start: str = ""):
         self.history = history or History.from_file()
+        self.line_start = line_start
+        self.reset(False)
+    
+    def reset(self, val=True):
         self._target_cursor = Cursor(0, 0)
         self._term_cursor = Cursor(0, 0)
         self._term_lines = []
-        self.set(lines)
+        if val:
+            self.set([""])
 
     def width(self):
-        return terminal_width()
+        return terminal_width() - len(self.line_start)
 
     @property
     def column(self):
@@ -150,7 +153,7 @@ class Context:
             val += "\n" * row_delta
         elif row_delta < 0:
             val += key.UP * -row_delta
-        val += "\r" + key.RIGHT * target.column
+        val += "\r" + key.RIGHT * (target.column + len(self.line_start))
         praw(val, flush=flush)
     
     def backspace(self):
@@ -225,7 +228,7 @@ class Context:
                         hidden = True
                     self.move_to_target(Cursor(lineno))
                     spaces = max(len(original) - len(line), 0) * " "
-                    praw("\r" + line + spaces + "\r")
+                    praw("\r" + self.line_start + line + spaces + "\r")
                     # logger.debug(f"Drawing {repr(line)}")
         self._term_lines = term
         return self._term_lines
@@ -242,6 +245,7 @@ class Context:
         """Get the next block of input from the user"""
         if prompt:
             print(prompt)
+        self.reset()
         while True:
             char = readkey()
             logger.debug(f"Read key: {repr(char)}")

@@ -66,11 +66,11 @@ def chat() -> None:
     messages = [START_MESSAGE]
     enabled = False
     model = "gpt-3.5-turbo"
-    context = Context()
+    context = Context(line_start="| ")
 
     try:
         while True:
-            message = context.next("user:")
+            message = context.next("User:")
 
             if message is None:
                 print("Goodbye!")
@@ -95,10 +95,10 @@ def chat() -> None:
                 print(f"Model set to {model}.")
                 continue
             if message.startswith("system "):
-                messages.append({
+                messages = [{
                     "role": "system",
                     "content": message[7:],
-                })
+                }]
                 continue
 
             logger.debug(f"Sending message: {message}")

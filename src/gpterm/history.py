@@ -3,15 +3,7 @@ from dotenv import load_dotenv
 import dataclasses
 from dataclasses import dataclass
 import os
-import sys
-import shutil
 from typing import List
-
-import atexit
-from readchar import readkey, key
-from recordclass import dataobject
-from time import time, sleep
-import math
 import json
 
 load_dotenv()
@@ -73,7 +65,6 @@ class History:
     def current(self):
         if 0 <= self.index < len(self.history):
             return self[self.index]
-        return None
     
     def previous(self):
         if self.index >= 0:
