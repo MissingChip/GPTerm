@@ -247,6 +247,7 @@ class Context:
             logger.debug(f"Read key: {repr(char)}")
             if char == key.CTRL_D:
                 self.jump_to_end()
+                print("\n")
                 return None
             if len(self._value) == 1 and char == key.ENTER:
                 return self._return()

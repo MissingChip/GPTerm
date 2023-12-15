@@ -23,10 +23,8 @@ def readchar() -> str:
     Blocks until a character is available."""
     return sys.stdin.read(1)
 
-
 def readkey() -> str:
-    """Get a keypress. If an escaped key is pressed, the full sequence is
-    read and returned as noted in `_posix_key.py`."""
+    """Get a full keypress. Will not work with ESC because it starts an escape sequence"""
 
     c1 = readchar()
 
