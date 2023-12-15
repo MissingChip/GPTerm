@@ -1,24 +1,27 @@
 
+from dataclasses import dataclass
 import os
 import sys
 import shutil
 from typing import List
 
 import atexit
-from dotenv import load_dotenv
-from readchar import readkey, key
+from gpterm.chario import readkey, key, init_chario
 from recordclass import dataobject
-from dataclasses import dataclass
 from time import time, sleep
 import math
+import json
 
 import logging
-logger = logging.getLogger(__name__)
 
+from gpterm.history import History, HistoryEntry
+logger = logging.getLogger(__name__)
+# TODO not at the top level
+init_chario()
+
+ESCAPE = "\x1b"
 SHIFT_UP = "\x1b[1;2A"
 SHIFT_DOWN = "\x1b[1;2B"
-
-load_dotenv()
 
 def praw(string: str, flush=True) -> None:
     """Print a character without a newline."""
@@ -33,27 +36,6 @@ def hide_cursor() -> None:
 def show_cursor() -> None:
     """Show the cursor."""
     praw("\033[?25h")
-
-class HistoryEntry(dataobject):
-    user: str
-
-@dataclass
-class History:
-    history: List[HistoryEntry]
-    index: int
-
-    def __getitem__(self, index):
-        return self.history[index]
-
-history_file = os.getenv("GPTERM_HISTORY_FILE", "./gpterm_history")
-try:
-    with open(history_file, "r") as file:
-        history_lines = file.read().split("\n\n")
-        history = History([HistoryEntry(line) for line in history_lines], len(history_lines))
-except FileNotFoundError:
-    history = []
-    with open(history_file, "w") as file:
-        file.write("")
 
 @dataclass
 class Cursor:
@@ -76,8 +58,8 @@ class Context:
     last_key: str = ""
     last_key_count: int = 0
 
-    def __init__(self, history: History, lines: List[str]):
-        self.history = history
+    def __init__(self, history: History = None, lines: List[str] = []):
+        self.history = history or History.from_file()
         self._target_cursor = Cursor(0, 0)
         self._term_cursor = Cursor(0, 0)
         self._term_lines = []
@@ -96,12 +78,14 @@ class Context:
     
     @property
     def value(self):
-        return "".join(self._value)
+        return "".join(self._value).rstrip("\n")
     
     def set(self, value: str | List[str]):
         self._value = terminal_lines(value, self.width())
+        # logger.debug(f"Set value: {self._value}")
         self.draw()
         self.jump_to_end()
+        show_cursor()
         logger.debug(f"Set value, cursor at {self._target_cursor}: {self._value}")
     
     def term_line(self, lineno: int):
@@ -119,7 +103,8 @@ class Context:
             return
         lines = self._term_lines
         if row >= len(lines):
-            self.set(self._value + ([""] * (row - len(lines) + 1)))
+            self._value[-1] += "\n"
+            self.set(self._value + (["\n"] * (row - len(lines))) + [""])
             return
         logger.debug(f"Moving cursor {motion} from {self._target_cursor} to {row}, {col}")
         sz = lambda row: len(lines[row].rstrip("\n"))
@@ -180,6 +165,8 @@ class Context:
             self.replace("", Cursor(cursor.row-1, -1), cursor)
 
     def replace(self, string: str, start: Cursor, end: Cursor):
+        # logger.debug(f"Replacing {start} to {end} with {repr(string)}, {self._value}")
+        # logger.debug(f"Before: {self._cursor_visualization()}")
         lines = string.split("\n")
         line_start = self._value[start.row][:start.column]
         line_end = self._value[end.row][end.column:]
@@ -192,7 +179,6 @@ class Context:
 
         self._value = self._value[:start.row] + lines + self._value[end.row+1:]
 
-        hide_cursor()
         self._value = self.draw().copy()
         self.set_target(Cursor(start.row + len(lines) - 1, len(lines[-1])))
         self.move_to_target()
@@ -209,8 +195,10 @@ class Context:
     
     def draw(self, lines: str | List[str] = None):
         if lines is None:
-            lines = self.value
-        term = terminal_lines(lines, self.width())
+            lines = self._value
+        width = self.width()
+        hidden = False
+        term = terminal_lines(lines, width)
         mismatch = self._mismatch_index(term)
         limit = max(len(term), len(self._term_lines))
         for lineno in range(mismatch, limit):
@@ -219,27 +207,51 @@ class Context:
             original = self._term_lines[lineno] if lineno < len(self._term_lines) else None
             original = original and original.rstrip()
             if line != original:
-                self.move_to_target(Cursor(lineno))
-                spaces = max(len(original or "") - len(line), 0) * " "
-                praw("\r" + line + spaces + "\r")
-                logger.debug(f"Drawing {repr(line)}")
+                original = original or ""
+                if len(line) - 1 == len(original or ""):
+                    praw(line[-1])
+                    self._term_cursor.column += 1
+                else:
+                    if not hidden:
+                        hide_cursor()
+                        hidden = True
+                    self.move_to_target(Cursor(lineno))
+                    spaces = max(len(original) - len(line), 0) * " "
+                    praw("\r" + line + spaces + "\r")
+                    # logger.debug(f"Drawing {repr(line)}")
         self._term_lines = term
         return self._term_lines
 
-    def next(self):
+    def _return(self):
+        self.jump_to_end()
+        praw("\n")
+        value = self.value
+        self.history.append(HistoryEntry(value))
+        self._value = [""]
+        return value
+
+    def next(self, prompt=""):
         """Get the next block of input from the user"""
+        if prompt:
+            print(prompt)
         while True:
             char = readkey()
+            logger.debug(f"Read key: {repr(char)}")
             if char == key.CTRL_D:
-                    print("\nGoodbye.")
-                    exit(0)
+                self.jump_to_end()
+                return None
+            if len(self._value) == 1 and char == key.ENTER:
+                return self._return()
+            if char == "\r":
+                continue
             times = 1
             if char == self.last_key and time() - self.last_key_time < 0.25:
                 if char == key.ENTER:
-                    self.jump_to_end()
-                    praw("\n")
-                    return self.value
-                times = self.last_key_count + 1
+                    return self._return()
+                self.last_key_count += 1
+                times = repeat_times(self.last_key_count)
+            else:
+                self.last_key_count = 0
             for _ in range(repeat_times(times)):
                 if not handle_key(char, self):
                     if len(char) > 1:
@@ -248,8 +260,9 @@ class Context:
                     logger.debug(f"Writing key: {repr(char)}")
                     self.write(char)
             self.last_key = char
-            self.last_key_count = times
             self.last_key_time = time()
+    def save(self):
+        self.history.save()
 
 def repeat_times(times_repeated: int):
     return 1 if times_repeated <= 2 else min(times_repeated + 2, 12)
@@ -262,23 +275,26 @@ def line_count(lines: List[str]) -> int:
     width = terminal_width()
     return sum([math.ceil(len(line)/width) for line in lines])
 
-def terminal_lines(lines: str | List[str], width=terminal_width(), end="\n") -> int:
+def flatten(xss):
+    return [x for xs in xss for x in xs]
+
+def terminal_lines(lines: str | List[str], width=terminal_width()) -> int:
     """Return the lines as they would be printed to the terminal."""
     if isinstance(lines, str):
-        lines = lines.split("\n")
+        lines = lines.splitlines(True)
+    # else:
+    #     lines = flatten([line.splitlines(True) for line in lines])
     new_lines = []
-    for lineno, line in enumerate(lines):
-        line = line.rstrip("\n")
-        if lineno < len(lines) - 1:
-            line += end
+    for line in lines:
+        end = ""
+        if line.endswith("\n"):
+            end = "\n"
+            line = line.rstrip("\n")
         while len(line) > width:
             new_lines.append(line[:width])
             line = line[width:]
-        new_lines.append(line)
+        new_lines.append(line + end)
     return new_lines or [""]
-
-def write_char(char: str, context: Context) -> None:
-    context.write(char)
 
 def handle_key(char: str, context: Context) -> None:
     history = context.history
@@ -286,7 +302,7 @@ def handle_key(char: str, context: Context) -> None:
     if char == key.PAGE_UP:
         if history.index > 0:
             history.index -= 1
-            context.set(history[history.index].user)
+            context.set(history[history.index].content)
         else:
             history.index = max(0, history.index - 1)
             context.set("")
@@ -294,7 +310,7 @@ def handle_key(char: str, context: Context) -> None:
     if char == key.PAGE_DOWN:
         if history.index < len(history.history) - 1:
             history.index += 1
-            context.set(history[history.index].user)
+            context.set(history[history.index].content)
         else:
             history.index = min(len(history.history) - 1, history.index + 1)
             context.set("")
@@ -314,19 +330,6 @@ def handle_key(char: str, context: Context) -> None:
     if char == key.RIGHT:
         context.move(CursorMotion(0, 1))
         return True
-
-def get_input(prompt: str = "> ") -> str:
-    entry = get_raw_input(prompt)
-    entry = replace_files_with_contents(entry)
-    return entry
-
-def get_raw_input(prompt: str = "> ", history = history) -> str:
-    print(prompt + "\n", end="", flush=True)
-    context = Context(history, "")
-    return context.next()
-
-def add_history_entry(entry: HistoryEntry, history: History = history) -> None:
-    history.history.append(entry)
 
 def replace_files_with_contents(message: str, directory: str = ".") -> str:
     """Replace filenames in the message with their contents."""

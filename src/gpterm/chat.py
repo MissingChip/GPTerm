@@ -3,7 +3,7 @@
 from typing import List
 import logging
 from dotenv import load_dotenv
-from gpterm.entry import get_input
+from gpterm.context import Context
 import openai
 from recordclass import dataobject
 
@@ -30,7 +30,7 @@ START_MESSAGE = {
     "content": SYSTEM,
 }
 
-class Context(dataobject):
+class CompletionContext(dataobject):
     openai_client: openai.OpenAI
     messages: List[dict]
 
@@ -66,10 +66,16 @@ def chat() -> None:
     messages = [START_MESSAGE]
     enabled = False
     model = "gpt-3.5-turbo"
+    context = Context()
 
     try:
         while True:
-            message = get_input()
+            message = context.next("user:")
+
+            if message is None:
+                print("Goodbye!")
+                context.save()
+                break
 
             if message == "enable":
                 enabled = True
@@ -104,20 +110,23 @@ def chat() -> None:
 
             print("\nAssistant:")
             if enabled:
-                response = COMPLETION[model](Context(
+                response = COMPLETION[model](CompletionContext(
                     openai_client=client,
                     messages=messages,
                 ))
             else:
                 print("OpenAI is disabled. Type 'enable' to enable.")
                 print("You wrote:")
-                print(message, end="\n\n")
+                print("```")
+                print(message)
+                print("```", end="\n\n")
                 continue
             print("\n")
             messages.append({
                 "role": "assistant",
                 "content": response,
             })
+            
     except KeyboardInterrupt:
         logger.info("Chat terminated by user.")
 

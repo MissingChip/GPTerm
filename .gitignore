@@ -1,2 +1,8 @@
 venv
 .env
+chat.log
+.gpterm_history
+__pycache__
+
+*.tar.gz
+*.whl
