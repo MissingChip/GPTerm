@@ -71,7 +71,7 @@ def chat() -> None:
     client = openai.OpenAI()
 
     messages = [START_MESSAGE]
-    enabled = False
+    enabled = True
     model = "gpt-3.5-turbo"
     context = Context(line_start="| ")
 
