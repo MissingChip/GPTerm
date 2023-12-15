@@ -86,7 +86,7 @@ def chat() -> None:
                 continue
             if message == "quit":
                 break
-            if message in ("reset", "restart"):
+            if message in ("", "reset", "restart"):
                 messages = [START_MESSAGE]
                 print("Chat restarted.")
                 continue

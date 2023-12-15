@@ -29,11 +29,13 @@ DEFAULT_HISTORY_FILE = os.getenv("GPTERM_HISTORY_FILE", "./gpterm_history")
 @dataclass
 class History:
     history: List[HistoryEntry]
+    _start_index: int
     index: int
     file: str = DEFAULT_HISTORY_FILE
 
     def __init__(self, history: List[HistoryEntry], index: int, file: str = None):
         self.history = history
+        self._start_index = len(history)
         self.index = index
         self.file = file or self.file
     
@@ -51,7 +53,7 @@ class History:
     def save(self, file: str = None, append=True):
         file = file or self.file
         with open(file, "a" if append else "w") as file:
-            file.write("\n".join([json.dumps(dataclasses.asdict(entry)) for entry in self.history]))
+            file.write("".join([json.dumps(dataclasses.asdict(entry)) + "\n" for entry in self.history[self._start_index:]]))
 
     def __getitem__(self, index):
         return self.history[index]
@@ -62,3 +64,18 @@ class History:
     def append(self, entry: HistoryEntry):
         self.history.append(entry)
         self.index = len(self.history)
+    
+    def next(self):
+        if self.index <= len(self.history):
+            self.index += 1
+        return self.current()
+
+    def current(self):
+        if 0 <= self.index < len(self.history):
+            return self[self.index]
+        return None
+    
+    def previous(self):
+        if self.index >= 0:
+            self.index -= 1
+        return self.current()

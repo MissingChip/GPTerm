@@ -19,10 +19,6 @@ logger = logging.getLogger(__name__)
 # TODO not at the top level
 init_chario()
 
-ESCAPE = "\x1b"
-SHIFT_UP = "\x1b[1;2A"
-SHIFT_DOWN = "\x1b[1;2B"
-
 def praw(string: str, flush=True) -> None:
     """Print a character without a newline."""
     sys.stdout.write(string)
@@ -163,6 +159,18 @@ class Context:
             self.replace("", Cursor(cursor.row, cursor.column-1), cursor)
         elif cursor.row > 0:
             self.replace("", Cursor(cursor.row-1, -1), cursor)
+    
+    def tab(self):
+        current_column = self._target_cursor.column
+        spaces = 4 - (current_column % 4)
+        self.write(" " * spaces)
+    
+    def backtab(self):
+        line = self._term_lines[self._target_cursor.row].rstrip("\n")
+        row = self._target_cursor.row
+        end_column = len(line) - len(line.lstrip(" "))
+        start_column = end_column - ((end_column % 4) or 4)
+        self.replace("", Cursor(row, start_column), Cursor(row, end_column))
 
     def replace(self, string: str, start: Cursor, end: Cursor):
         # logger.debug(f"Replacing {start} to {end} with {repr(string)}, {self._value}")
@@ -244,6 +252,8 @@ class Context:
                 return self._return()
             if char == "\r":
                 continue
+            if handle_key(char, self):
+                continue
             times = 1
             if char == self.last_key and time() - self.last_key_time < 0.25:
                 if char == key.ENTER:
@@ -253,12 +263,11 @@ class Context:
             else:
                 self.last_key_count = 0
             for _ in range(repeat_times(times)):
-                if not handle_key(char, self):
-                    if len(char) > 1:
-                        logger.debug(f"Skipping long character: {repr(char)} {char}")
-                        continue
-                    logger.debug(f"Writing key: {repr(char)}")
-                    self.write(char)
+                if len(char) > 1:
+                    logger.debug(f"Skipping long character: {repr(char)} {char}")
+                    continue
+                # logger.debug(f"Writing key: {repr(char)}")
+                self.write(char)
             self.last_key = char
             self.last_key_time = time()
     def save(self):
@@ -299,21 +308,19 @@ def terminal_lines(lines: str | List[str], width=terminal_width()) -> int:
 def handle_key(char: str, context: Context) -> None:
     history = context.history
     logger.debug(f"Handling key: {repr(char)}")
-    if char == key.PAGE_UP:
-        if history.index > 0:
-            history.index -= 1
-            context.set(history[history.index].content)
-        else:
-            history.index = max(0, history.index - 1)
-            context.set("")
+    if char in (key.PAGE_UP, key.SHIFT_UP):
+        value = history.previous()
+        context.set((value and value.content) or "")
         return True
-    if char == key.PAGE_DOWN:
-        if history.index < len(history.history) - 1:
-            history.index += 1
-            context.set(history[history.index].content)
-        else:
-            history.index = min(len(history.history) - 1, history.index + 1)
-            context.set("")
+    if char in (key.PAGE_DOWN, key.SHIFT_DOWN):
+        value = history.next()
+        context.set((value and value.content) or "")
+        return True
+    if char == key.TAB:
+        context.tab()
+        return True
+    if char == key.SHIFT_TAB:
+        context.backtab()
         return True
     if char == key.BACKSPACE:
         context.backspace()
