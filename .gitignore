@@ -1,7 +1,7 @@
 venv
 .env
-chat.log
-.gpterm_history
+.chat.log
+.chat_history
 __pycache__
 
 *.tar.gz

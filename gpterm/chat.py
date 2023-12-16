@@ -2,6 +2,7 @@
 
 import logging
 from dataclasses import dataclass
+import os
 from typing import List
 
 import openai
@@ -9,12 +10,23 @@ from dotenv import load_dotenv
 
 from gpterm.context import Context
 
-# Setup logging
-logging.basicConfig(level=logging.DEBUG, filename="chat.log")
-logger = logging.getLogger(__name__)
-
 # Load environment variables
 load_dotenv()
+
+# Setup logging
+log_levels = {
+    "DEBUG": logging.DEBUG,
+    "INFO": logging.INFO,
+    "WARNING": logging.WARNING,
+    "WARN": logging.WARNING,
+    "ERROR": logging.ERROR,
+}
+logging.basicConfig(
+    level=log_levels[os.getenv("CHAT_LOG_LEVEL", "ERROR")],
+    filename=os.getenv("CHAT_LOG_FILE", "chat.log"),
+)
+logger = logging.getLogger(__name__)
+
 # Constants
 # MODELS = ["gpt-3.5", "gpt-3.5-turbo", "gpt-4", "gpt-4-1106-preview"]
 OPENAI_MODELS = {

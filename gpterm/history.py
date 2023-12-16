@@ -19,7 +19,7 @@ class HistoryEntry:
         return HistoryEntry(**json.loads(line))
 
 
-DEFAULT_HISTORY_FILE = os.getenv("GPTERM_HISTORY_FILE", "./gpterm_history")
+DEFAULT_HISTORY_FILE = os.getenv("CHAT_HISTORY_FILE", "./chat_history")
 
 
 @dataclass
