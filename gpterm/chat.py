@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 
 import logging
-from dataclasses import dataclass
 import os
+from dataclasses import dataclass
 from typing import List
 
 import openai
@@ -23,14 +23,14 @@ log_levels = {
 }
 logging.basicConfig(
     level=log_levels[os.getenv("CHAT_LOG_LEVEL", "ERROR")],
-    filename=os.getenv("CHAT_LOG_FILE", "chat.log"),
+    filename=os.getenv("CHAT_LOG_FILE", ".chat.log"),
 )
 logger = logging.getLogger(__name__)
 
 # Constants
 # MODELS = ["gpt-3.5", "gpt-3.5-turbo", "gpt-4", "gpt-4-1106-preview"]
 OPENAI_MODELS = {
-    "3": "gpt-3.5",
+    "3": "gpt-3.5-turbo",
     "4": "gpt-4-1106-preview",
     "gpt-3.5": "gpt-3.5",
     "gpt-3.5-turbo": "gpt-3.5-turbo",
@@ -76,20 +76,29 @@ COMPLETION = {v: complete_openai for v in OPENAI_MODELS.values()}
 # Utilities
 
 
-def chat() -> None:
+def chat(model: str = "gpt-3.5-turbo", initial_message: str = None) -> None:
     """Main chat function that interfaces with the OpenAI API."""
 
     # Initialize the OpenAI client with API key from the environment
     client = openai.OpenAI()
 
     messages = [START_MESSAGE]
+    if initial_message:
+        messages.append(
+            {
+                "role": "user",
+                "content": initial_message,
+            }
+        )
     enabled = True
-    model = "gpt-3.5-turbo"
     context = Context(line_start="| ")
 
     try:
         while True:
-            message = context.next("User:")
+            if messages[-1]["role"] == "user":
+                message = messages[-1]["content"]
+            else:
+                message = context.next("User:")
 
             if message is None:
                 print("Goodbye!")
