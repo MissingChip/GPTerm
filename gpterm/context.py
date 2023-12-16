@@ -173,6 +173,13 @@ class Context:
         elif cursor.row > 0:
             self.replace("", Cursor(cursor.row - 1, -1), cursor)
 
+    def delete(self):
+        cursor = self._target_cursor
+        if cursor.column < len(self._value[cursor.row]) - 1:
+            self.replace("", cursor, Cursor(cursor.row, cursor.column + 1))
+        elif cursor.row < len(self._value) - 1:
+            self.replace("", cursor, Cursor(cursor.row + 1, 0))
+
     def tab(self):
         current_column = self._target_cursor.column
         spaces = 4 - (current_column % 4)
@@ -194,6 +201,7 @@ class Context:
 
         # TODO: Have terminal_lines() handle this?
         lines[0] = line_start + lines[0]
+        end_len = len(lines[-1])
         lines[-1] += line_end
         lines = [line + "\n" for line in lines[:-1]] + [lines[-1]]
         logger.debug(f"Replacing {start} to {end} with {lines}")
@@ -201,7 +209,7 @@ class Context:
         self._value = self._value[: start.row] + lines + self._value[end.row + 1 :]
 
         self._value = self.draw().copy()
-        self.set_target(Cursor(start.row + len(lines) - 1, len(lines[-1])))
+        self.set_target(Cursor(start.row + len(lines) - 1, end_len))
         self.move_to_target()
         show_cursor()
 
@@ -346,6 +354,10 @@ def handle_key(char: str, context: Context, count: int) -> None:
     if char == key.BACKSPACE:
         for _ in range(count):
             context.backspace()
+        return True
+    if char == key.DELETE:
+        for _ in range(count):
+            context.delete()
         return True
     if char == key.UP:
         context.move(CursorMotion(-min(count, 4)))
