@@ -87,11 +87,9 @@ class Context:
 
     def set(self, value: str | List[str]):
         self._value = terminal_lines(value, self.width())
-        # logger.debug(f"Set value: {self._value}")
         self.draw()
         self.jump_to_end()
         show_cursor()
-        logger.debug(f"Set value, cursor at {self._target_cursor}: {self._value}")
 
     def term_line(self, lineno: int):
         return self._term_lines[lineno].rstrip("\n")
@@ -101,9 +99,6 @@ class Context:
         col = self._target_cursor.column
         row = row + motion.row
         if row < 0:
-            logger.debug(
-                f"Moving cursor {motion} from {self._target_cursor} to {row}, {col}"
-            )
             self._value = (["\n"] * -row) + self._value
             self.draw()
             self.set_target(Cursor())
@@ -113,9 +108,6 @@ class Context:
             self._value[-1] += "\n"
             self.set(self._value + (["\n"] * (row - len(lines))) + [""])
             return
-        logger.debug(
-            f"Moving cursor {motion} from {self._target_cursor} to {row}, {col}"
-        )
         sz = lambda row: len(lines[row].rstrip("\n"))
         if col > sz(row):
             col = sz(row)
@@ -153,7 +145,6 @@ class Context:
     def move_to_target(self, target: Cursor = None, flush=True):
         if target is None:
             target = self._target_cursor
-        logger.debug(f"Target: cursor {target} ({self._term_cursor})")
         width = self.width()
         target = Cursor(target.row + target.column // width, target.column % width)
         row_delta = target.row - self._term_cursor.row
@@ -193,8 +184,6 @@ class Context:
         self.replace("", Cursor(row, start_column), Cursor(row, end_column))
 
     def replace(self, string: str, start: Cursor, end: Cursor):
-        # logger.debug(f"Replacing {start} to {end} with {repr(string)}, {self._value}")
-        # logger.debug(f"Before: {self._cursor_visualization()}")
         lines = string.split("\n")
         line_start = self._value[start.row][: start.column]
         line_end = self._value[end.row][end.column :]
@@ -204,7 +193,6 @@ class Context:
         end_len = len(lines[-1])
         lines[-1] += line_end
         lines = [line + "\n" for line in lines[:-1]] + [lines[-1]]
-        logger.debug(f"Replacing {start} to {end} with {lines}")
 
         self._value = self._value[: start.row] + lines + self._value[end.row + 1 :]
 
@@ -249,7 +237,6 @@ class Context:
                     self.move_to_target(Cursor(lineno))
                     spaces = max(len(original) - len(line), 0) * " "
                     praw("\r" + self.line_start + line + spaces + "\r")
-                    # logger.debug(f"Drawing {repr(line)}")
         self._term_lines = term
         return self._term_lines
 
@@ -268,7 +255,6 @@ class Context:
         self.reset()
         while True:
             char = readkey()
-            logger.debug(f"Read key: {repr(char)}")
             if char == key.CTRL_D:
                 self.jump_to_end()
                 print("\n")
@@ -287,7 +273,7 @@ class Context:
                 self.last_key_count = 0
             if not handle_key(char, self, times):
                 if len(char) > 1:
-                    logger.debug(f"Skipping long character: {repr(char)} {char}")
+                    logger.warning(f"Skipping long character: {repr(char)} {char}")
                     continue
                 self.write(char * times)
             self.last_key = char
@@ -336,7 +322,6 @@ def terminal_lines(lines: str | List[str], width=terminal_width()) -> int:
 
 def handle_key(char: str, context: Context, count: int) -> None:
     history = context.history
-    logger.debug(f"Handling key: {repr(char)}")
     if char in (key.PAGE_UP, key.SHIFT_UP):
         value = history.previous()
         context.set((value and value.content) or "")
