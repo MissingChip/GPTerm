@@ -15,9 +15,12 @@ OPENAI_API_KEY=API_KEY
 
 And run
 ```
-gpterm
+chat
 ```
 or
 ```
-chat
+gpterm
 ```
+
+It's also recommended to copy `.env.example` to `.env` and replace any values
+(particularly OPENAI_API_KEY) with your own
