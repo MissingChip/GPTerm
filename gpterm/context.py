@@ -140,6 +140,8 @@ class Context:
             cursor = self._target_cursor
         row = cursor.row
         col = cursor.column
+        if row >= len(self._value):
+            return repr(f"{self._value[-1]}|")
         return repr(f"{self._value[row][:col]}|{self._value[row][col:]}")
 
     def move_to_target(self, target: Cursor = None, flush=True):
@@ -147,6 +149,8 @@ class Context:
             target = self._target_cursor
         width = self.width()
         target = Cursor(target.row + target.column // width, target.column % width)
+        self._target_cursor = target
+        logger.debug(f"Moving to {target}")
         row_delta = target.row - self._term_cursor.row
         self._term_cursor = target
         val = ""
@@ -156,13 +160,18 @@ class Context:
             val += key.UP * -row_delta
         val += "\r" + key.RIGHT * (target.column + len(self.line_start))
         praw(val, flush=flush)
+        # if target.row >= len(self._value):
+        #     self._value[-1] += "\n"
+        #     self._value += [""]
+        #     return
 
-    def backspace(self):
+    def backspace(self, amount=1):
         cursor = self._target_cursor
-        if cursor.column > 0:
-            self.replace("", Cursor(cursor.row, cursor.column - 1), cursor)
+        if cursor.column >= amount:
+            self.replace("", Cursor(cursor.row, cursor.column - amount), cursor)
         elif cursor.row > 0:
-            self.replace("", Cursor(cursor.row - 1, -1), cursor)
+            line = len(self._value[cursor.row - 1])
+            self.replace("", Cursor(cursor.row - 1, max(line-amount-1, 0)), cursor)
 
     def delete(self):
         cursor = self._target_cursor
@@ -184,6 +193,7 @@ class Context:
         self.replace("", Cursor(row, start_column), Cursor(row, end_column))
 
     def replace(self, string: str, start: Cursor, end: Cursor):
+        logger.debug(f"Replacing {string} {start} {end}")
         lines = string.split("\n")
         line_start = self._value[start.row][: start.column]
         line_end = self._value[end.row][end.column :]
@@ -196,9 +206,9 @@ class Context:
 
         self._value = self._value[: start.row] + lines + self._value[end.row + 1 :]
 
-        self._value = self.draw().copy()
+        self._value = self.draw("".join(self._value)).copy()
         self.set_target(Cursor(start.row + len(lines) - 1, end_len))
-        self.move_to_target()
+        logger.debug(f"Cursor: {self.width()} {end_len} {self._cursor_visualization()}")
         show_cursor()
 
     def write(self, string: str):
@@ -216,6 +226,7 @@ class Context:
         width = self.width()
         hidden = False
         term = terminal_lines(lines, width)
+        logger.debug(f"Drawing {term}")
         mismatch = self._mismatch_index(term)
         limit = max(len(term), len(self._term_lines))
         for lineno in range(mismatch, limit):
@@ -225,7 +236,10 @@ class Context:
                 self._term_lines[lineno] if lineno < len(self._term_lines) else None
             )
             original = original and original.rstrip()
-            if line != original:
+            if lineno > len(term):
+                self.move_to_target(Cursor(lineno))
+                praw("\r" + " " * width + "\r")
+            elif line != original:
                 original = original or ""
                 if len(line) - 1 == len(original or ""):
                     praw(line[-1])
@@ -238,6 +252,7 @@ class Context:
                     spaces = max(len(original) - len(line), 0) * " "
                     praw("\r" + self.line_start + line + spaces + "\r")
         self._term_lines = term
+        logger.debug("Done drawing")
         return self._term_lines
 
     def _return(self):
@@ -297,16 +312,12 @@ def line_count(lines: List[str]) -> int:
     return sum([math.ceil(len(line) / width) for line in lines])
 
 
-def flatten(xss):
-    return [x for xs in xss for x in xs]
-
-
 def terminal_lines(lines: str | List[str], width=terminal_width()) -> int:
     """Return the lines as they would be printed to the terminal."""
     if isinstance(lines, str):
         lines = lines.splitlines(True)
-    # else:
-    #     lines = flatten([line.splitlines(True) for line in lines])
+    if lines[-1].endswith("\n"):
+        lines.append("")
     new_lines = []
     for line in lines:
         end = ""
@@ -337,8 +348,7 @@ def handle_key(char: str, context: Context, count: int) -> None:
         context.backtab()
         return True
     if char == key.BACKSPACE:
-        for _ in range(count):
-            context.backspace()
+        context.backspace(count)
         return True
     if char == key.DELETE:
         for _ in range(count):
