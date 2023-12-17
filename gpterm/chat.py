@@ -95,34 +95,32 @@ def chat(model: str = "gpt-3.5-turbo", initial_message: str = None) -> None:
 
     try:
         while True:
-            if messages[-1]["role"] == "user":
-                message = messages[-1]["content"]
+            if initial_message:
+                message = initial_message
+                initial_message = None
             else:
                 message = context.next("User:")
 
-            if message is None:
-                print("Goodbye!")
-                context.save()
+            cmd = message and message.lower()
+            if message in (None, "quit"):
                 break
 
-            if message == "enable":
+            if cmd == "enable":
                 enabled = True
                 messages = [START_MESSAGE]
                 continue
-            if message == "disable":
+            if cmd == "disable":
                 enabled = False
                 continue
-            if message == "quit":
-                break
-            if message in ("", "reset", "restart"):
+            if cmd in ("", "reset", "restart"):
                 messages = [START_MESSAGE]
                 print("Chat restarted.")
                 continue
-            if message in OPENAI_MODELS:
+            if cmd in OPENAI_MODELS:
                 model = OPENAI_MODELS[message]
                 print(f"Model set to {model}.")
                 continue
-            if message.startswith("system "):
+            if cmd.startswith("system "):
                 messages = [
                     {
                         "role": "system",
@@ -162,9 +160,10 @@ def chat(model: str = "gpt-3.5-turbo", initial_message: str = None) -> None:
                     "content": response,
                 }
             )
-
     except KeyboardInterrupt:
         logger.info("Chat terminated by user.")
+    print("Goodbye!")
+    context.save()
 
 
 if __name__ == "__main__":

@@ -54,6 +54,7 @@ class Context:
     _term_lines: List[str]
     last_key: str = ""
     last_key_count: int = 0
+    last_key_time: float = 0
     line_start = ""
 
     def __init__(
@@ -67,6 +68,9 @@ class Context:
         self._target_cursor = Cursor(0, 0)
         self._term_cursor = Cursor(0, 0)
         self._term_lines = []
+        self.last_key_time = time()
+        self.last_key = ""
+        self.last_key_count = 0
         if val:
             self.set([""])
 
@@ -172,6 +176,8 @@ class Context:
         elif cursor.row > 0:
             line = len(self._value[cursor.row - 1])
             self.replace("", Cursor(cursor.row - 1, max(line-amount-1, 0)), cursor)
+        else:
+            self.replace("", Cursor(0, 0), cursor)
 
     def delete(self):
         cursor = self._target_cursor
@@ -206,7 +212,7 @@ class Context:
 
         self._value = self._value[: start.row] + lines + self._value[end.row + 1 :]
 
-        self._value = self.draw("".join(self._value)).copy()
+        self._value = self.draw(self._value).copy()
         self.set_target(Cursor(start.row + len(lines) - 1, end_len))
         logger.debug(f"Cursor: {self.width()} {end_len} {self._cursor_visualization()}")
         show_cursor()
@@ -241,8 +247,9 @@ class Context:
                 praw("\r" + " " * width + "\r")
             elif line != original:
                 original = original or ""
-                if len(line) - 1 == len(original or ""):
-                    praw(line[-1])
+                col = self._term_cursor.column
+                if original and line[:col] == original:
+                    praw(line[col:])
                     self._term_cursor.column += 1
                 else:
                     if not hidden:
@@ -279,11 +286,12 @@ class Context:
             if char == "\r":
                 continue
             times = 1
-            if char == self.last_key and time() - self.last_key_time < 0.25:
-                if char == key.ENTER:
+            deltat = time() - self.last_key_time
+            if char == self.last_key and deltat < 0.5:
+                if char == key.ENTER and deltat < 0.3:
                     return self._return()
                 self.last_key_count += 1
-                times = repeat_times(self.last_key_count)
+                times = repeat_times(self.last_key_count, deltat)
             else:
                 self.last_key_count = 0
             if not handle_key(char, self, times):
@@ -298,8 +306,9 @@ class Context:
         self.history.save()
 
 
-def repeat_times(times_repeated: int):
-    return 1 if times_repeated <= 2 else min(times_repeated + 2, 12)
+def repeat_times(times_repeated: int, deltat: float):
+    factor = min(0.25/deltat, 4)
+    return 1 if times_repeated <= 2 else round(min(times_repeated, 6)*factor)
 
 
 def terminal_width() -> int:
@@ -314,10 +323,9 @@ def line_count(lines: List[str]) -> int:
 
 def terminal_lines(lines: str | List[str], width=terminal_width()) -> int:
     """Return the lines as they would be printed to the terminal."""
-    if isinstance(lines, str):
-        lines = lines.splitlines(True)
-    if lines[-1].endswith("\n"):
-        lines.append("")
+    if isinstance(lines, list):
+        lines = "".join(lines)
+    lines = lines.splitlines(True) or [""]
     new_lines = []
     for line in lines:
         end = ""
@@ -328,6 +336,9 @@ def terminal_lines(lines: str | List[str], width=terminal_width()) -> int:
             new_lines.append(line[:width])
             line = line[width:]
         new_lines.append(line + end)
+    last = new_lines[-1]
+    if last.endswith("\n") or len(last) >= width:
+        new_lines.append("")
     return new_lines or [""]
 
 
