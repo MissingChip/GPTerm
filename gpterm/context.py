@@ -175,13 +175,13 @@ class Context:
             self.replace("", Cursor(cursor.row, cursor.column - amount), cursor)
         elif cursor.row > 0:
             line = len(self._value[cursor.row - 1])
-            self.replace("", Cursor(cursor.row - 1, max(line-amount-1, 0)), cursor)
+            self.replace("", Cursor(cursor.row - 1, line-amount), cursor)
         else:
             self.replace("", Cursor(0, 0), cursor)
 
     def delete(self):
         cursor = self._target_cursor
-        if cursor.column < len(self._value[cursor.row]) - 1:
+        if cursor.column < len(self._value[cursor.row]):
             self.replace("", cursor, Cursor(cursor.row, cursor.column + 1))
         elif cursor.row < len(self._value) - 1:
             self.replace("", cursor, Cursor(cursor.row + 1, 0))
@@ -232,7 +232,7 @@ class Context:
         width = self.width()
         hidden = False
         term = terminal_lines(lines, width)
-        logger.debug(f"Drawing {term}")
+        logger.debug(f"Drawing {term} on {self._term_lines}")
         mismatch = self._mismatch_index(term)
         limit = max(len(term), len(self._term_lines))
         for lineno in range(mismatch, limit):
@@ -242,7 +242,7 @@ class Context:
                 self._term_lines[lineno] if lineno < len(self._term_lines) else None
             )
             original = original and original.rstrip()
-            if lineno > len(term):
+            if lineno >= len(term):
                 self.move_to_target(Cursor(lineno))
                 praw("\r" + " " * width + "\r")
             elif line != original:
