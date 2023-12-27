@@ -5,7 +5,7 @@ import shutil
 import sys
 from dataclasses import dataclass
 from time import sleep, time
-from typing import List
+from typing import List, Union
 
 from gpterm.chario import init_chario, key, readkey
 from gpterm.history import History, HistoryEntry
@@ -89,7 +89,7 @@ class Context:
     def value(self):
         return "".join(self._value).rstrip("\n")
 
-    def set(self, value: str | List[str]):
+    def set(self, value: Union[str,List[str]]):
         self._value = terminal_lines(value, self.width())
         self.draw()
         self.jump_to_end()
@@ -226,7 +226,7 @@ class Context:
                 return i
         return min(len(self._term_lines), len(term_lines))
 
-    def draw(self, lines: str | List[str] = None):
+    def draw(self, lines: List[str] = None):
         if lines is None:
             lines = self._value
         width = self.width()
@@ -321,7 +321,7 @@ def line_count(lines: List[str]) -> int:
     return sum([math.ceil(len(line) / width) for line in lines])
 
 
-def terminal_lines(lines: str | List[str], width=terminal_width()) -> int:
+def terminal_lines(lines: Union[str,List[str]], width=terminal_width()) -> int:
     """Return the lines as they would be printed to the terminal."""
     if isinstance(lines, list):
         lines = "".join(lines)
