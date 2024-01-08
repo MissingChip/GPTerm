@@ -164,10 +164,6 @@ class Context:
             val += key.UP * -row_delta
         val += "\r" + key.RIGHT * (target.column + len(self.line_start))
         praw(val, flush=flush)
-        # if target.row >= len(self._value):
-        #     self._value[-1] += "\n"
-        #     self._value += [""]
-        #     return
 
     def backspace(self, amount=1):
         cursor = self._target_cursor
@@ -288,7 +284,7 @@ class Context:
             times = 1
             deltat = time() - self.last_key_time
             if char == self.last_key and deltat < 0.5:
-                if char == key.ENTER and deltat < 0.3:
+                if char == key.ENTER and 0.02 < deltat < 0.3:
                     return self._return()
                 self.last_key_count += 1
                 times = repeat_times(self.last_key_count, deltat)
